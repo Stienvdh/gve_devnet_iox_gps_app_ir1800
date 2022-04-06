@@ -28,13 +28,13 @@ $ cd gve_devnet_iox_gps_app_ir1800
 3. Build the Docker container
 
 ```
-docker build -t ioxdockergps .
+$ docker build -t ioxdockergps .
 ```
 
 4. Package the application for IOx deployment (NOTE: This step creates a `package.tar` file that will be used later on in this guide)
 
 ```
-ioxclient docker package ioxdockergps .
+$ ioxclient docker package ioxdockergps .
 ```
 
 5. Deploy the IOx app
