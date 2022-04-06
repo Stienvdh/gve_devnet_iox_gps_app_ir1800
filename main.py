@@ -46,14 +46,14 @@ class SerialThread(threading.Thread):
         self.setDaemon(True)
         self.stop_event = threading.Event()
 
-
     def stop(self):
         self.stop_event.set()
 
     def run(self):
         INTERVAL = 5 # Interval between publishing in seconds
-        URL = "XXX" # URL to send JSON HTTP payload to
+        URL = "XXX" # URL to post GPS data to
 
+        # Set up serial device
         serial_dev = os.getenv("gps1")
         if serial_dev is None:
             serial_dev="/dev/ttyNMEA1"
@@ -62,10 +62,10 @@ class SerialThread(threading.Thread):
         sdev.timeout = 5
         print("Serial:  %s\n", sdev)
 
-        # Initialise logging
+        # Set up application logging
         try:
             directory = os.environ['CAF_APP_LOG_DIR'] + "/"
-        except KeyError:
+        except KeyError as e:
             directory = "./"
         logger = logging.getLogger('webapp')
         logger.setLevel(logging.INFO)
@@ -75,31 +75,63 @@ class SerialThread(threading.Thread):
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
         
+        # Main loop
         while True:
             if self.stop_event.is_set():
                 break
+            quality = None
+            no_sattelites = None
+            hdop = None
+            old_entry = {
+                "lat" : "",
+                "lon" : ""
+            }
             while sdev.inWaiting() > 0:
+                time_since = 31
                 sensVal = sdev.readline()
                 sensVal = sensVal.decode().split(",")
                 format = sensVal[0][1:]
+
                 # NMEA data formats: https://anavs.com/knowledgebase/nmea-format/
-                if format == "GPRMC" and sensVal[2] == "A":
+                if format == "GPGGA":
+                    quality = sensVal[6]
+                    no_sattelites = sensVal[7]
+                    hdop = sensVal[8]
+                elif format == "GPRMC" and sensVal[2] == "A" and quality is not None:
                     entry = {
                         "timestamp" : datetime.datetime.now().strftime("%d/%m/%y %H:%M:%SUTC"),
-                        "latitude" : sensVal[3] + sensVal[4],
-                        "longitude" : sensVal[5] + sensVal[6],
-                        "speed" : sensVal[7]
+                        "identity" : os.environ["CAF_SYSTEM_NAME"],
+                        "lat" : ("" if sensVal[4]=="N" else "-") + sensVal[3][:2] + "." + sensVal[3][2:4] + sensVal[3][5:],
+                        "lon" : ("" if sensVal[6]=="E" else "-") + sensVal[5][:2] + "." + sensVal[5][2:5] + sensVal[5][6:],
+                        "spd" : f"{float(sensVal[7])*1.852} km/h",
+                        "bearing" : f"{sensVal[8]} deg. true",
+                        "valid" : "yes",
+                        "sattelites" : no_sattelites,
+                        "quality" : quality,
+                        "hdop" : hdop
                     }
+                    
+                    if need_to_update(time_since, old_entry, entry):
+                        time_since = 0
 
-                    # Send to REST endpoint
-                    requests.post(URL, headers={"Content-Type" : "application/json"}, json=entry)
+                        # Log to application files
+                        logger.info(json.dumps(entry))
 
-                    # Log to file
-                    logger.info(json.dumps(entry))
+                        # Send to REST endpoint
+                        requests.post(URL, headers={"Content-Type" : "application/json"}, json=entry)
+
+                        old_entry = entry
+                    else:
+                        time_since += INTERVAL
 
                     time.sleep(INTERVAL)
-
         sdev.close()
+
+# Check if sending update is necessary
+def need_to_update(time_since, old_entry, new_entry):
+    if old_entry['lat'] != new_entry['lat'] or old_entry['lon'] != new_entry['lon'] or time_since > 30:
+        return True
+    return False
 
 def simple_app(environ, start_response):
     status = '200 OK'

@@ -23,7 +23,7 @@ $ git clone https://github.com/Stienvdh/gve_devnet_iox_gps_app_ir1800.git
 $ cd gve_devnet_iox_gps_app_ir1800
 ```
 
-2. In `main.py`, set your REST endpoint on line 55. 
+2. In `main.py`, set your REST endpoint on line 54. 
 
 3. Build the Docker container
 
